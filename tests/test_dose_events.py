@@ -8,6 +8,7 @@ from custom_components.hero_health import event as event_platform
 from custom_components.hero_health.dose_events import (
     dose_event_attributes,
     dose_event_key,
+    dose_event_status,
     latest_taken_event,
     tracked_dose_events,
 )
@@ -68,6 +69,18 @@ def test_latest_taken_event_prefers_actual_datetime():
     assert event_time.isoformat() == "2026-09-21T07:48:01+00:00"
     assert source == "actual"
     assert dose_event_attributes(event)["medications"] == ["Example A", "Example B"]
+
+
+def test_took_on_time_is_recognized_as_taken():
+    event = {
+        "status": "took_on_time",
+        "actual_datetime": "2026-09-21T07:48:01+00:00",
+    }
+    latest = latest_taken_event({"today": [event]}, dt_util.UTC)
+    assert latest is not None
+    assert latest[1].isoformat() == "2026-09-21T07:48:01+00:00"
+    assert dose_event_status(event) == "taken"
+    assert tracked_dose_events({"today": [event]}) == [event]
 
 
 def test_latest_taken_event_falls_back_to_scheduled_datetime():

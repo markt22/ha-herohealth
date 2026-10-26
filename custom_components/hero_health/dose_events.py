@@ -10,6 +10,7 @@ from .entity import parse_hero_datetime
 
 TAKEN_DOSE_STATUSES = frozenset({"taken", "taken_late"})
 TRACKED_DOSE_STATUSES = frozenset({*TAKEN_DOSE_STATUSES, "skipped"})
+_STATUS_ALIASES = {"took_on_time": "taken"}
 
 
 def iter_recent_dose_events(payload: Any) -> list[dict[str, Any]]:
@@ -29,7 +30,8 @@ def iter_recent_dose_events(payload: Any) -> list[dict[str, Any]]:
 def dose_event_status(event: dict[str, Any]) -> str:
     """Return a normalized Hero event status."""
     value = event.get("status")
-    return value.strip().lower() if isinstance(value, str) else ""
+    normalized = value.strip().lower() if isinstance(value, str) else ""
+    return _STATUS_ALIASES.get(normalized, normalized)
 
 
 def dose_event_datetime(
