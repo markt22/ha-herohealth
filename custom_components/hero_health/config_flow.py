@@ -64,7 +64,7 @@ class HeroHealthConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             client = await session.async_initialize()
             accounts = await client.caregiver_patient_list()
-            raw_accounts: list[Any] = []
+            raw_accounts: list[Any] | None = None
             if isinstance(accounts, list):
                 raw_accounts = accounts
             elif isinstance(accounts, dict) and isinstance(
@@ -73,11 +73,21 @@ class HeroHealthConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 raw_accounts = accounts["results"]
             self._accounts = [
                 a
-                for a in raw_accounts
+                for a in (raw_accounts or [])
                 if isinstance(a, dict)
                 and a.get("account_id") is not None
                 and str(a.get("account_id")).strip()
             ]
+            # A primary account may not appear in its own caregiver list.
+            if raw_accounts == []:
+                status = await client.user_status()
+                primary_id = (
+                    status.get("account_id") if isinstance(status, dict) else None
+                )
+                if (isinstance(primary_id, str) and primary_id.strip()) or (
+                    type(primary_id) is int and primary_id > 0
+                ):
+                    self._accounts = [{"account_id": primary_id}]
             if not self._accounts:
                 return self.async_show_form(
                     step_id=step_id,

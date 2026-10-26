@@ -53,10 +53,17 @@ class FakeSession:
     accounts = [{"account_id": "fake-account-1", "device_nickname": "Demo Hero"}]
     initialize_error = None
     initialize_errors = []
+    primary_status = {}
+    primary_error = None
+    clients = []
     closed = 0
 
     def __init__(self, *_args, **_kwargs):
         self.client = FakeClient(self.accounts)
+        self.client.user_status = AsyncMock(
+            return_value=self.primary_status, side_effect=self.primary_error
+        )
+        self.clients.append(self.client)
 
     async def async_initialize(self):
         if self.initialize_errors:
@@ -81,6 +88,9 @@ def fake_sessions(monkeypatch):
     ]
     FakeSession.initialize_error = None
     FakeSession.initialize_errors = []
+    FakeSession.primary_status = {}
+    FakeSession.primary_error = None
+    FakeSession.clients = []
     FakeSession.closed = 0
     monkeypatch.setattr(
         "custom_components.hero_health.config_flow.HeroSession", FakeSession
@@ -138,6 +148,106 @@ async def test_user_flow_selects_multiple_accounts(hass, fake_sessions):
     )
     assert result["type"] == "create_entry"
     assert result["data"][CONF_ACCOUNT_ID] == "fake-account-2"
+
+
+@pytest.mark.parametrize("accounts", [[], {"results": [], "count": 0}])
+@pytest.mark.parametrize("account_id", ["fake-primary-account", 123])
+async def test_empty_caregiver_list_discovers_primary_account(
+    hass, fake_sessions, accounts, account_id
+):
+    fake_sessions.accounts = accounts
+    fake_sessions.primary_status = {"account_id": account_id, "unneeded": "private"}
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": "user"},
+        data={CONF_EMAIL: "test@example.invalid", CONF_PASSWORD: "fake-password"},
+    )
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_ACCOUNT_ID] == str(account_id)
+    assert "unneeded" not in result["data"]
+    fake_sessions.clients[0].user_status.assert_awaited_once_with()
+    fake_sessions.clients[1].user_status.assert_awaited_once_with(str(account_id))
+    assert fake_sessions.closed == 2
+
+
+@pytest.mark.parametrize(
+    "status",
+    [None, [], {}]
+    + [
+        {"account_id": value}
+        for value in (None, "", "  ", True, False, 0, -1, 1.5, [], {})
+    ],
+)
+async def test_empty_caregiver_list_rejects_invalid_primary_account(
+    hass, fake_sessions, status
+):
+    fake_sessions.accounts = []
+    fake_sessions.primary_status = status
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": "user"},
+        data={CONF_EMAIL: "test@example.invalid", CONF_PASSWORD: "fake-password"},
+    )
+    assert result["errors"] == {"base": "invalid_response"}
+    assert fake_sessions.closed == 1
+
+
+@pytest.mark.parametrize(
+    "accounts", [None, {"error": "invalid"}, {"results": None}, [{}]]
+)
+async def test_malformed_caregiver_response_does_not_fall_back(
+    hass, fake_sessions, accounts
+):
+    fake_sessions.accounts = accounts
+    fake_sessions.primary_status = {"account_id": "fake-primary"}
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": "user"},
+        data={CONF_EMAIL: "test@example.invalid", CONF_PASSWORD: "fake-password"},
+    )
+    assert result["errors"] == {"base": "invalid_response"}
+    fake_sessions.clients[0].user_status.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (HeroAuthenticationError("auth"), "invalid_auth"),
+        (HeroConnectionError("offline"), "cannot_connect"),
+        (HeroError("invalid"), "invalid_response"),
+    ],
+)
+async def test_primary_account_lookup_errors(hass, fake_sessions, error, expected):
+    fake_sessions.accounts = []
+    fake_sessions.primary_error = error
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": "user"},
+        data={CONF_EMAIL: "test@example.invalid", CONF_PASSWORD: "fake-password"},
+    )
+    assert result["errors"] == {"base": expected}
+    assert fake_sessions.closed == 1
+
+
+async def test_primary_account_reauth_cannot_switch_account(hass, fake_sessions):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="fake-original",
+        data={CONF_EMAIL: "test@example.invalid", CONF_ACCOUNT_ID: "fake-original"},
+    )
+    entry.add_to_hass(hass)
+    fake_sessions.accounts = []
+    fake_sessions.primary_status = {"account_id": "fake-other"}
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_REAUTH, "entry_id": entry.entry_id},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_EMAIL: "test@example.invalid", CONF_PASSWORD: "fake-password"},
+    )
+    assert result["reason"] == "wrong_account"
+    assert entry.unique_id == "fake-original"
 
 
 @pytest.mark.asyncio
