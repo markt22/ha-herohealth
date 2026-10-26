@@ -54,10 +54,10 @@
         "title": "Hero Health options",
         "description": "Configure the background polling cadence for Hero Health cloud data.",
         "data": {
-          "scan_interval": "Refresh interval (minutes)"
+          "scan_interval": "Full data refresh interval (minutes)"
         },
         "data_description": {
-          "scan_interval": "How often to poll Hero Health cloud for device status, medication levels, and upcoming doses. Wall-clock dispense eligibility transitions are updated locally and do not require polling."
+          "scan_interval": "Refresh all data hourly by default. Connectivity is checked separately every 5 minutes. Use Refresh data for an immediate full update. Eligibility timers update locally; explicit dispensing still requires fresh server validation."
         }
       }
     }
@@ -104,6 +104,9 @@
       }
     },
     "button": {
+      "refresh_data": {
+        "name": "Refresh data"
+      },
       "dispense_scheduled_dose": {
         "name": "Dispense scheduled dose"
       }

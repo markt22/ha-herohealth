@@ -9,9 +9,10 @@ from homeassistant.const import CONF_PASSWORD as HA_CONF_PASSWORD
 
 DOMAIN = "hero_health"
 PLATFORMS = ["sensor", "binary_sensor", "button", "event"]
-DEFAULT_SCAN_INTERVAL = timedelta(minutes=180)
+DEFAULT_SCAN_INTERVAL = timedelta(minutes=60)
+CONNECTIVITY_SCAN_INTERVAL = timedelta(minutes=5)
 CONF_SCAN_INTERVAL = "scan_interval"
-DEFAULT_SCAN_INTERVAL_MINUTES = 180
+DEFAULT_SCAN_INTERVAL_MINUTES = 60
 MIN_SCAN_INTERVAL_MINUTES = 15
 MAX_SCAN_INTERVAL_MINUTES = 1440
 CONF_ACCOUNT_ID = "account_id"

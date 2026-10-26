@@ -28,9 +28,28 @@ async def async_setup_entry(
     entry: HeroHealthConfigEntry,
     add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up the safety-gated dispense button."""
+    """Set up manual data refresh and the safety-gated dispense button."""
     coordinator = entry.runtime_data.coordinator
-    add_entities([DispenseScheduledDoseButton(coordinator)])
+    add_entities(
+        [DispenseScheduledDoseButton(coordinator), RefreshDataButton(coordinator)]
+    )
+
+
+class RefreshDataButton(HeroEntity, ButtonEntity):
+    """Immediately refresh the full snapshot, including after a failed update."""
+
+    _attr_translation_key = "refresh_data"
+    _attr_icon = "mdi:refresh"
+
+    def __init__(self, coordinator: HeroCoordinator) -> None:
+        super().__init__(coordinator, "refresh_data")
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_press(self) -> None:
+        await self.coordinator.async_refresh()
 
 
 class DispenseScheduledDoseButton(HeroEntity, ButtonEntity):
@@ -122,17 +141,8 @@ class DispenseScheduledDoseButton(HeroEntity, ButtonEntity):
 
     @callback
     def _async_scheduled_time_fired(self, now: datetime) -> None:
-        """Fetch Hero's authoritative dose state at the scheduled dose time."""
-        _LOGGER.debug(
-            "Scheduled-dose timer fired; requesting authoritative Hero refresh"
-        )
-        scheduled_at = self._scheduled_refresh_at
-        if scheduled_at is not None:
-            schedule_refresh = getattr(
-                self.coordinator, "async_schedule_eligibility_refresh", None
-            )
-            if callable(schedule_refresh):
-                schedule_refresh(scheduled_at)
+        """Update local eligibility without an extra cloud snapshot."""
+        _LOGGER.debug("Scheduled-dose timer fired; updating local Hero eligibility")
         self._async_boundary_fired(now)
 
     async def async_added_to_hass(self) -> None:

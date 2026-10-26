@@ -15,7 +15,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .api.exceptions import HeroAuthenticationError, HeroError, HeroRateLimitError
-from .const import DEFAULT_SCAN_INTERVAL_MINUTES
+from .const import CONNECTIVITY_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES
 from .entity import is_low_medication
 from .session import HeroSession
 
@@ -43,6 +43,7 @@ class HeroCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ),
         )
         self.entry, self.session, self.dispense_lock = entry, session, asyncio.Lock()
+        self.connectivity_coordinator = HeroConnectivityCoordinator(hass, self)
         self.device_tz: tzinfo | None = None
         self._eligibility_refresh_task: asyncio.Task[None] | None = None
         self._last_eligibility_refresh_boundary: datetime | None = None
@@ -224,6 +225,7 @@ class HeroCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             elif "stats" in clean_stats and not isinstance(clean_stats["stats"], dict):
                 clean_stats = {"stats": {}}
 
+            self.connectivity_coordinator.async_set_updated_data({"offline": offline})
             return {
                 "offline": offline,
                 "status": status,
@@ -274,3 +276,44 @@ class HeroCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if isinstance(result, HeroAuthenticationError):
                 raise result
         return results
+
+
+class HeroConnectivityCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Poll only connectivity without making hourly snapshot data appear fresh."""
+
+    def __init__(self, hass: HomeAssistant, parent: HeroCoordinator) -> None:
+        super().__init__(
+            hass,
+            _LOGGER,
+            name="Hero connectivity",
+            update_interval=CONNECTIVITY_SCAN_INTERVAL,
+        )
+        self.parent = parent
+        self.entry = parent.entry
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return self.parent.device_info
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        try:
+            offline = await self.parent.session.async_execute(
+                lambda client: client.check_hero_offline()
+            )
+            if (
+                not isinstance(offline, dict)
+                or type(offline.get("hero_offline")) is not bool
+            ):
+                raise HeroError("Hero returned invalid connectivity data")
+            return {"offline": offline}
+        except HeroAuthenticationError as err:
+            raise ConfigEntryAuthFailed("Hero authentication required") from err
+        except HeroRateLimitError as err:
+            retry_after = err.retry_after
+            if retry_after is None or not 0 < retry_after <= 86400:
+                retry_after = 300
+            raise UpdateFailed(
+                "Hero temporarily rate limited requests", retry_after=retry_after
+            ) from err
+        except HeroError as err:
+            raise UpdateFailed(str(err)) from err

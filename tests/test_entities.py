@@ -482,7 +482,7 @@ async def test_dispense_available_sensor_boundary_timers(monkeypatch):
     assert getattr(scheduled_callback, "__name__", "") != "<lambda>"
 
     scheduled_callback(scheduled)
-    assert coordinator.eligibility_refreshes == 1
+    assert coordinator.eligibility_refreshes == 0
 
     sensor._async_boundary_fired(now)
     assert len(written) == 2
@@ -537,8 +537,8 @@ async def test_dispense_available_sensor_ha_event_loop_execution(hass, monkeypat
     async_fire_time_changed(hass, scheduled + timedelta(seconds=1))
     await hass.async_block_till_done()
 
-    # Verify coordinator refresh was requested without thread-safety RuntimeError
-    coordinator.async_refresh.assert_awaited_once()
+    # Scheduled-time UI updates must not bypass the hourly polling interval.
+    coordinator.async_refresh.assert_not_awaited()
 
     # Clean up and ensure unsubs and armed boundary are cleared
     await sensor.async_will_remove_from_hass()
@@ -593,8 +593,7 @@ async def test_dispense_available_sensor_scheduled_time_logs_sanitized(
         assert "Arming scheduled-dose eligibility refresh timer" in caplog.text
         sensor._async_scheduled_time_fired(scheduled)
         assert (
-            "Scheduled-dose timer fired; requesting authoritative Hero refresh"
-            in caplog.text
+            "Scheduled-dose timer fired; updating local Hero eligibility" in caplog.text
         )
 
     await sensor.async_will_remove_from_hass()
@@ -607,7 +606,7 @@ async def test_dispense_available_sensor_scheduled_time_logs_sanitized(
 async def test_button_and_binary_sensor_joint_scheduled_time_refresh_and_deduplication(
     hass, monkeypatch
 ):
-    """Button and binary sensor fire at scheduled boundary with deduplicated refresh."""
+    """Both scheduled-time timers update locally without cloud polling."""
     now = datetime(2026, 9, 11, 12, 0, tzinfo=dt_util.UTC)
     monkeypatch.setattr(dt_util, "now", lambda: now)
     scheduled = now + timedelta(minutes=15)
@@ -659,8 +658,8 @@ async def test_button_and_binary_sensor_joint_scheduled_time_refresh_and_dedupli
     async_fire_time_changed(hass, scheduled + timedelta(seconds=1))
     await hass.async_block_till_done()
 
-    # Exactly one refresh should have been requested due to coordinator deduplication
-    coordinator.async_refresh.assert_awaited_once()
+    # Neither UI timer may request a cloud snapshot.
+    coordinator.async_refresh.assert_not_awaited()
 
     # Clean up both entities
     await button.async_will_remove_from_hass()

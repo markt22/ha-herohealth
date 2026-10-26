@@ -95,7 +95,7 @@ async def test_button_setup_entry():
     entry = SimpleNamespace(runtime_data=SimpleNamespace(coordinator=coordinator))
     added = []
     await async_setup_entry(None, entry, added.extend)
-    assert len(added) == 1
+    assert len(added) == 2
     assert isinstance(added[0], DispenseScheduledDoseButton)
 
 
@@ -132,7 +132,7 @@ async def test_button_boundary_timers(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_button_scheduled_time_refreshes_authoritative_dose_state(monkeypatch):
+async def test_button_scheduled_time_updates_locally(monkeypatch):
     coordinator = FakeCoordinator()
     button = DispenseScheduledDoseButton(coordinator)
     now = datetime(2026, 9, 11, 12, 0, tzinfo=dt_util.UTC)
@@ -171,7 +171,7 @@ async def test_button_scheduled_time_refreshes_authoritative_dose_state(monkeypa
     assert getattr(scheduled_callback, "__name__", "") != "<lambda>"
 
     scheduled_callback(scheduled)
-    assert coordinator.eligibility_refreshes == 1
+    assert coordinator.eligibility_refreshes == 0
 
     coordinator.data["doses"] = _eligible_doses(scheduled)
     assert button.available
@@ -218,8 +218,8 @@ async def test_button_scheduled_time_ha_event_loop_execution(hass, monkeypatch):
     async_fire_time_changed(hass, scheduled + timedelta(seconds=1))
     await hass.async_block_till_done()
 
-    # Verify coordinator refresh was requested without thread-safety RuntimeError
-    coordinator.async_refresh.assert_awaited_once()
+    # Scheduled-time UI updates must not bypass the hourly polling interval.
+    coordinator.async_refresh.assert_not_awaited()
 
     # Clean up and ensure unsubs and armed boundary are cleared
     await button.async_will_remove_from_hass()
@@ -268,8 +268,7 @@ async def test_button_scheduled_time_logs_sanitized(hass, caplog, monkeypatch):
         assert "Arming scheduled-dose eligibility refresh timer" in caplog.text
         button._async_scheduled_time_fired(scheduled)
         assert (
-            "Scheduled-dose timer fired; requesting authoritative Hero refresh"
-            in caplog.text
+            "Scheduled-dose timer fired; updating local Hero eligibility" in caplog.text
         )
 
     await button.async_will_remove_from_hass()

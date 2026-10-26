@@ -71,8 +71,15 @@ async def test_exact_count_entities_update_and_become_unavailable(hass, monkeypa
         assert hass.states.get(entities[3]).state == "unknown"
         assert client.last_d2d_config.await_count == 1
 
+        refresh_button = registry.async_get_entity_id(
+            "button", DOMAIN, "fake-count-account_refresh_data"
+        )
+        assert refresh_button is not None
+
         pills[0].update(name="Example Changed", exact_pill_count=50)
-        await entry.runtime_data.coordinator.async_refresh()
+        await hass.services.async_call(
+            "button", "press", {"entity_id": refresh_button}, blocking=True
+        )
         assert hass.states.get(entities[1]).state == "50"
         assert client.last_d2d_config.await_count == 2
 

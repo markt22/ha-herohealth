@@ -132,6 +132,36 @@ After installation:
 
 Once configured, your Hero dispenser and related sensors will appear in Home Assistant automatically.
 
+### Polling and manual refresh
+
+- Connectivity (`check-hero-offline`) is polled independently every **5 minutes**.
+- The full data snapshot refreshes every **60 minutes** by default. The integration
+  options control this full-data interval, not the connectivity interval.
+- The **Refresh data** button immediately pulls all data, including pill counts,
+  recent dose activity, and schedules. It remains available after a failed refresh
+  so you can retry without waiting for the next hourly update.
+- Scheduled-dose UI timers update eligibility locally without additional API
+  polling. Explicit dispensing still requires a fresh server snapshot and Hero's
+  preflight checks; those safety checks are not replaced by cached hourly data.
+
+### Optional private API response logging
+
+Full response logging is **off by default**. To enable it, create the file
+`hero_api_logs/.enabled` under your Home Assistant configuration directory.
+Remove that file to stop logging. Responses are written as JSON Lines to
+`hero_api_logs/responses.jsonl`, including the UTC timestamp, endpoint, HTTP
+status, and complete JSON body.
+
+Token/password fields and token-like strings are redacted. Authentication bodies,
+request headers, cookies, non-JSON bodies, and dispensing WebSocket traffic are
+not logged. Medication names, quantities, schedules, and account details **are**
+included, so do not upload the log publicly. HA backups may include these files.
+
+The directory is restricted to its owner (0700), files to their owner (0600),
+and logs rotate at 5 MiB with three backups. Individual responses are never
+truncated, so a response larger than the limit may exceed that rotation size.
+Logging failures do not interrupt normal data updates.
+
 ---
 
 ## What you’ll see in Home Assistant

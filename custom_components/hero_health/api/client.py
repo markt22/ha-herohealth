@@ -11,6 +11,7 @@ from typing import Any
 
 import aiohttp
 
+from .api_response_log import record_response
 from .exceptions import (
     HeroApiError,
     HeroAuthenticationError,
@@ -83,6 +84,15 @@ class HeroCloudClient:
                 params=params,
                 headers=self._headers(auth=auth, account_id=account_id),
             ) as response:
+                text = await response.text()
+                try:
+                    await asyncio.to_thread(
+                        record_response, path, response.status, text, self.access_token
+                    )
+                except Exception as err:
+                    _LOGGER.warning(
+                        "Hero API response logging failed (%s)", type(err).__name__
+                    )
                 if response.status in (401, 403):
                     raise HeroAuthenticationError(
                         f"Hero API returned HTTP {response.status}"
@@ -97,7 +107,6 @@ class HeroCloudClient:
                     raise HeroApiError(
                         f"Hero API request failed with HTTP {response.status}"
                     )
-                text = await response.text()
                 return json.loads(text) if text else None
         except aiohttp.ClientError as err:
             raise HeroConnectionError("Unable to connect to Hero Cloud") from err

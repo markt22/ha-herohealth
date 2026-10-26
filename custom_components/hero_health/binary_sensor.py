@@ -45,7 +45,10 @@ class ConnectivitySensor(HeroEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
 
     def __init__(self, coordinator: HeroCoordinator) -> None:
-        super().__init__(coordinator, "connectivity")
+        super().__init__(
+            getattr(coordinator, "connectivity_coordinator", coordinator),
+            "connectivity",
+        )
 
     @property
     def is_on(self) -> bool:
@@ -139,17 +142,8 @@ class DispenseAvailableSensor(HeroEntity, BinarySensorEntity):
 
     @callback
     def _async_scheduled_time_fired(self, now: datetime) -> None:
-        """Fetch Hero's authoritative dose state at the scheduled dose time."""
-        _LOGGER.debug(
-            "Scheduled-dose timer fired; requesting authoritative Hero refresh"
-        )
-        scheduled_at = self._scheduled_refresh_at
-        if scheduled_at is not None:
-            schedule_refresh = getattr(
-                self.coordinator, "async_schedule_eligibility_refresh", None
-            )
-            if callable(schedule_refresh):
-                schedule_refresh(scheduled_at)
+        """Update local eligibility without an extra cloud snapshot."""
+        _LOGGER.debug("Scheduled-dose timer fired; updating local Hero eligibility")
         self._async_boundary_fired(now)
 
     async def async_added_to_hass(self) -> None:
