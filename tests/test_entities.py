@@ -21,6 +21,7 @@ from custom_components.hero_health.coordinator import HeroCoordinator
 from custom_components.hero_health.entity import HeroEntity
 from custom_components.hero_health.sensor import (
     AdherenceSensor,
+    ExactPillCountSensor,
     LastDoseTakenSensor,
     LowMedicationsSensor,
     MedicationsSensor,
@@ -157,10 +158,76 @@ async def test_platform_creates_expected_sensor_entities():
     entry = SimpleNamespace(runtime_data=SimpleNamespace(coordinator=coordinator))
     added = []
     await async_setup_entry(None, entry, added.extend)
-    assert len(added) == 17
-    assert {entity.unique_id for entity in added if "slot_" in entity.unique_id} == {
+    assert len(added) == 27
+    assert {entity.unique_id for entity in added if isinstance(entity, SlotSensor)} == {
         f"fake-account_slot_{slot}" for slot in range(1, 11)
     }
+    assert {
+        entity.unique_id for entity in added if isinstance(entity, ExactPillCountSensor)
+    } == {f"fake-account_slot_{slot}_exact_pill_count" for slot in range(1, 11)}
+
+
+@pytest.mark.parametrize("count", [0, 1, 250])
+def test_exact_pill_count_sensor_preserves_api_values(count):
+    coordinator = FakeCoordinator()
+    coordinator.data["medications"][0]["exact_pill_count"] = count
+    sensor = ExactPillCountSensor(coordinator, 1)
+    assert sensor.native_value == count
+    assert sensor.native_unit_of_measurement == "pills"
+    assert sensor.state_class.value == "measurement"
+    assert sensor.suggested_display_precision == 0
+    assert sensor.extra_state_attributes == {"slot": 1}
+
+
+@pytest.mark.parametrize("count", [None, True, False, -1, 2.5, 2.0, "2", "", {}, []])
+def test_exact_pill_count_sensor_rejects_invalid_values(count):
+    coordinator = FakeCoordinator()
+    coordinator.data["medications"][0]["exact_pill_count"] = count
+    assert ExactPillCountSensor(coordinator, 1).native_value is None
+
+
+def test_exact_pill_count_missing_is_not_zero_or_an_estimate():
+    coordinator = FakeCoordinator()
+    sensor = ExactPillCountSensor(coordinator, 1)
+    medication = coordinator.data["medications"][0]
+    medication.pop("exact_pill_count")
+    medication["pill_level_calculated"] = 0.75
+    assert sensor.native_value is None
+    assert ExactPillCountSensor(coordinator, 10).native_value is None
+    for invalid in (None, {}, [None], []):
+        coordinator.data["medications"] = invalid
+        assert sensor.native_value is None
+
+
+def test_exact_pill_count_updates_and_slot_identity_survives_refill():
+    coordinator = FakeCoordinator()
+    sensor = ExactPillCountSensor(coordinator, 1)
+    unique_id = sensor.unique_id
+    assert unique_id == "fake-account_slot_1_exact_pill_count"
+    assert sensor.native_value == 2
+    coordinator.data["medications"][0].update(
+        name="Example Changed", exact_pill_count=100
+    )
+    assert sensor.native_value == 100
+    assert sensor.unique_id == unique_id
+    recreated = ExactPillCountSensor(FakeCoordinator(entry_id="recreated"), 1)
+    assert recreated.unique_id == unique_id
+    assert "Example" not in str(sensor.extra_state_attributes)
+
+
+def test_exact_pill_count_translation_exists():
+    import json
+    from pathlib import Path
+
+    content = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "custom_components/hero_health/translations/en.json"
+        ).read_text()
+    )
+    assert content["entity"]["sensor"]["slot_exact_pill_count"]["name"] == (
+        "Slot {slot} exact pill count"
+    )
 
 
 def test_next_dose_sensor_selection_and_ordering(monkeypatch):

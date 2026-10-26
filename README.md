@@ -69,6 +69,7 @@ The integration creates sensors for the most useful everyday information, includ
 - **Dispenser connectivity**
 - **Low medications**
 - **Per-slot medication details**
+- **Per-slot exact remaining pill counts** as numeric sensors with history
 - **Per-slot low medication alerts**
 
 ### Smarter next scheduled dose
@@ -151,6 +152,19 @@ Depending on your dispenser configuration, you may see entities such as:
 
 You’ll also get entities for individual medication slots.
 
+### Exact pill counts
+
+Each of the ten physical slots has a separate numeric sensor, for example
+`sensor.hero_dispenser_slot_1_exact_pill_count` (the device name may change the
+entity ID). These sensors use Hero's `exact_pill_count` value from the existing
+cloud refresh; no extra API requests are made. They update on the same interval
+as the other Hero entities and support history, charts, and numeric automations.
+
+A reported count of zero is shown as `0 pills`. Missing or invalid counts are
+unknown, not estimated from the medication level. The sensor identity stays tied
+to the physical slot when medications are changed or refilled. Failed cloud
+refreshes make the entity unavailable using the normal coordinator behavior.
+
 ---
 
 ## Safety & Remote Dispensing
@@ -170,6 +184,7 @@ The integration includes a safety-gated button entity (`button.hero_health_dispe
 Home Assistant's recorder stores entity state changes over time. To protect sensitive medication information and keep your database performant:
 
 - Detailed medication attributes (such as pill types, exact counts, and schedule details) are marked unrecorded (`_unrecorded_attributes`), excluding them from Recorder history attributes.
+- The separate exact pill-count sensors intentionally record their numeric state for history and charts. Exclude these entities from Recorder if you do not want remaining-count history retained.
 - Individual slot sensors (`sensor.hero_health_slot_<n>`) expose the current medication name (or "Empty") as their entity state for dashboard visibility. Home Assistant Recorder may store these state strings in database history and backups.
 - Users who wish to keep medication names out of database history entirely can disable individual slot sensor entities in Home Assistant, or exclude them from database history in `configuration.yaml` via Recorder settings:
   ```yaml

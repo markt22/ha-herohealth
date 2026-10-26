@@ -96,6 +96,9 @@
       "slot": {
         "name": "Slot {slot}"
       },
+      "slot_exact_pill_count": {
+        "name": "Slot {slot} exact pill count"
+      },
       "last_dose_taken": {
         "name": "Last dose taken"
       }

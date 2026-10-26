@@ -40,6 +40,7 @@ async def async_setup_entry(
             NextDoseSensor(c),
             LastDoseTakenSensor(c),
             *[SlotSensor(c, slot) for slot in range(1, 11)],
+            *[ExactPillCountSensor(c, slot) for slot in range(1, 11)],
         ]
     )
 
@@ -195,6 +196,37 @@ class SlotSensor(HeroEntity, SensorEntity):
             "low": m.get("is_low"),
             "updated_at": m.get("updated_at"),
         }
+
+
+class ExactPillCountSensor(HeroEntity, SensorEntity):
+    """Expose Hero's exact remaining pill count for a stable physical slot."""
+
+    _attr_translation_key = "slot_exact_pill_count"
+    _attr_native_unit_of_measurement = "pills"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 0
+    _attr_icon = "mdi:pill-multiple"
+
+    def __init__(self, coordinator: HeroCoordinator, slot: int) -> None:
+        super().__init__(coordinator, f"slot_{slot}_exact_pill_count")
+        self.slot = slot
+        self._attr_name = f"Slot {slot} exact pill count"
+        self._attr_translation_placeholders = {"slot": str(slot)}
+
+    @property
+    def native_value(self) -> int | None:
+        medications = (self.coordinator.data or {}).get("medications", [])
+        if not isinstance(medications, list):
+            return None
+        for medication in medications:
+            if isinstance(medication, dict) and medication.get("slot") == self.slot:
+                count = medication.get("exact_pill_count")
+                return count if type(count) is int and count >= 0 else None
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"slot": self.slot}
 
 
 class LastDoseTakenSensor(HeroEntity, SensorEntity):
