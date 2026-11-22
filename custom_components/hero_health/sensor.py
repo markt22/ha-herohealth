@@ -267,7 +267,12 @@ class LastDoseTakenSensor(HeroEntity, SensorEntity):
         if latest is None:
             return {}
         event, _event_time, source = latest
-        return {**dose_event_attributes(event), "time_source": source}
+        return {
+            **dose_event_attributes(
+                event, (self.coordinator.data or {}).get("schedules")
+            ),
+            "time_source": source,
+        }
 
 
 class NextDoseSensor(HeroEntity, SensorEntity):

@@ -182,6 +182,27 @@ Depending on your dispenser configuration, you may see entities such as:
 
 You’ll also get entities for individual medication slots.
 
+### Dose completeness
+
+The dose activity event and Last dose taken sensor expose
+`all_scheduled_pills_dispensed`:
+
+- `true`: every medication in the matching confirmed schedule is represented in
+  the Hero event, has at least its scheduled actual quantity, and has no manual
+  quantity. Quantities are compared per medication, not just as a dose total.
+- `false`: an expected medication is absent, an actual quantity is short, or a
+  scheduled medication has a manual quantity rather than an entirely Hero dose.
+- `null` (unknown): the source, quantities, actual timestamp, or matching schedule
+  cannot be verified, the schedule is pending, or the returned scheduled quantities
+  disagree with the current schedule.
+
+`dispense_completeness_basis` is `current_confirmed_schedule` for a comparison or
+`unknown` otherwise. The API does not provide versioned historical schedules: this
+flag compares against the confirmed schedule returned in the same refresh, not a
+reconstructed historical prescription. Capture that basis when journaling an event.
+It describes Hero-reported quantities, not proof of ingestion or permission to
+dispense again. Dispensing safety checks and polling intervals are unchanged.
+
 ### Exact pill counts
 
 Each of the ten physical slots has a separate numeric sensor, for example

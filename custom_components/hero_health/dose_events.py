@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime, tzinfo
+from decimal import Decimal
 from typing import Any
 
 from .entity import parse_hero_datetime
@@ -83,7 +84,103 @@ def dose_event_key(event: dict[str, Any]) -> tuple[str, ...]:
     )
 
 
-def dose_event_attributes(event: dict[str, Any]) -> dict[str, Any]:
+def _quantity(value: Any) -> Decimal | None:
+    if type(value) not in (int, float):
+        return None
+    quantity = Decimal(str(value))
+    return quantity if quantity.is_finite() and quantity >= 0 else None
+
+
+def _medication_key(value: Any) -> tuple[str, str] | None:
+    if not isinstance(value, dict):
+        return None
+    name, dosage = value.get("name"), value.get("dosage")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    if dosage is not None and not isinstance(dosage, str):
+        return None
+    return name.strip().casefold(), (dosage or "").strip().casefold()
+
+
+def all_scheduled_pills_dispensed(event: dict[str, Any], schedules: Any) -> bool | None:
+    """Compare a taken event with the current confirmed schedule, per medication."""
+    if dose_event_status(event) not in TAKEN_DOSE_STATUSES:
+        return None
+    if event.get("pill_source") != "in_hero":
+        return None
+    actual_time = event.get("actual_datetime")
+    if not isinstance(actual_time, str):
+        return None
+    try:
+        datetime.fromisoformat(actual_time.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if not isinstance(schedules, dict) or schedules.get("pending_changes") is not False:
+        return None
+    schedule_id = event.get("schedule_id")
+    if type(schedule_id) not in (str, int) or not str(schedule_id).strip():
+        return None
+    values = schedules.get("schedules")
+    if not isinstance(values, list):
+        return None
+    matches = [
+        item
+        for item in values
+        if isinstance(item, dict) and str(item.get("schedule_id")) == str(schedule_id)
+    ]
+    if len(matches) != 1 or not isinstance(matches[0].get("pills"), list):
+        return None
+
+    expected: dict[tuple[str, str], Decimal] = {}
+    for item in matches[0]["pills"]:
+        if (
+            not isinstance(item, dict)
+            or (quantity := _quantity(item.get("qty"))) is None
+        ):
+            return None
+        if quantity == 0:
+            continue
+        key = _medication_key(item.get("pill"))
+        if key is None:
+            return None
+        expected[key] = expected.get(key, Decimal(0)) + quantity
+    if not expected or not isinstance(event.get("pills"), list):
+        return None
+
+    reported: dict[tuple[str, str], list[Decimal]] = {}
+    for pill in event["pills"]:
+        key = _medication_key(pill)
+        if key is None:
+            return None
+        quantities = [
+            _quantity(pill.get(field))
+            for field in ("scheduled_qty", "actual_qty", "manual_qty")
+        ]
+        if any(value is None for value in quantities):
+            return None
+        scheduled, actual, manual = quantities
+        if key not in expected:
+            if scheduled > 0:
+                return None
+            continue
+        totals = reported.setdefault(key, [Decimal(0), Decimal(0), Decimal(0)])
+        for index, value in enumerate((scheduled, actual, manual)):
+            totals[index] += value
+
+    if any(totals[0] != expected[key] for key, totals in reported.items()):
+        return None
+    # A medication absent from the event must not disappear from the expected dose.
+    if expected.keys() - reported.keys():
+        return False
+    return all(
+        reported[key][1] >= quantity and reported[key][2] == 0
+        for key, quantity in expected.items()
+    )
+
+
+def dose_event_attributes(
+    event: dict[str, Any], schedules: Any = None
+) -> dict[str, Any]:
     """Return safe, useful Home Assistant attributes for a dose event."""
     attributes: dict[str, Any] = {}
     for key in (
@@ -99,6 +196,11 @@ def dose_event_attributes(event: dict[str, Any]) -> dict[str, Any]:
     medications = dose_event_medications(event)
     if medications:
         attributes["medications"] = medications
+    complete = all_scheduled_pills_dispensed(event, schedules)
+    attributes["all_scheduled_pills_dispensed"] = complete
+    attributes["dispense_completeness_basis"] = (
+        "current_confirmed_schedule" if complete is not None else "unknown"
+    )
     return attributes
 
 

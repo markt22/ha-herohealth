@@ -75,7 +75,12 @@ class HeroDoseActivityEvent(HeroEntity, EventEntity):
             device_tz = getattr(self.coordinator, "device_tz", None)
             for event in sort_dose_events(new_events, device_tz):
                 status = dose_event_status(event)
-                self._trigger_event(status, dose_event_attributes(event))
+                self._trigger_event(
+                    status,
+                    dose_event_attributes(
+                        event, (self.coordinator.data or {}).get("schedules")
+                    ),
+                )
                 self.async_write_ha_state()
 
         super()._handle_coordinator_update()
